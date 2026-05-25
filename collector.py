@@ -37,6 +37,9 @@ from telethon.errors import (
     UsernameInvalidError, UsernameNotOccupiedError
 )
 
+from dotenv import load_dotenv
+load_dotenv()
+
 # ── Configuration ──────────────────────────────────────────────────────────────
 
 API_ID   = int(os.getenv("TG_API_ID",   "0"))        # from my.telegram.org
