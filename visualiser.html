@@ -1,0 +1,644 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>TG Forward Graph</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@300;400;500&family=IBM+Plex+Sans:wght@300;400;500&display=swap" rel="stylesheet">
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg:       #0d0f12;
+    --bg2:      #13161b;
+    --bg3:      #1b1f26;
+    --border:   #242830;
+    --border2:  #2e333d;
+    --text:     #d4d8e0;
+    --text2:    #7f8694;
+    --text3:    #4a5060;
+    --accent:   #00e5a0;
+    --accent2:  #3b8aff;
+    --accent3:  #ff6b3b;
+    --seed-col: #00e5a0;
+    --d1-col:   #3b8aff;
+    --d2-col:   #8877ff;
+    --font-mono: 'IBM Plex Mono', monospace;
+    --font-sans: 'IBM Plex Sans', sans-serif;
+  }
+
+  html, body { width: 100%; height: 100%; background: var(--bg); color: var(--text); font-family: var(--font-sans); overflow: hidden; }
+
+  /* ── Layout ── */
+  #shell { display: flex; height: 100vh; }
+
+  /* ── Sidebar ── */
+  #sidebar {
+    width: 280px; min-width: 280px;
+    display: flex; flex-direction: column;
+    background: var(--bg2);
+    border-right: 1px solid var(--border);
+    overflow: hidden;
+  }
+
+  #logo {
+    padding: 20px 18px 14px;
+    border-bottom: 1px solid var(--border);
+  }
+  #logo h1 {
+    font-family: var(--font-mono);
+    font-size: 13px; font-weight: 500;
+    letter-spacing: .12em; text-transform: uppercase;
+    color: var(--accent);
+  }
+  #logo p { font-size: 11px; color: var(--text3); margin-top: 3px; font-family: var(--font-mono); }
+
+  #controls { padding: 14px 16px; border-bottom: 1px solid var(--border); display: flex; flex-direction: column; gap: 11px; }
+
+  .field { display: flex; flex-direction: column; gap: 4px; }
+  .field label { font-size: 10px; font-family: var(--font-mono); color: var(--text3); letter-spacing: .08em; text-transform: uppercase; }
+
+  .field input, .field select {
+    font-family: var(--font-mono); font-size: 12px;
+    padding: 6px 9px;
+    background: var(--bg3); border: 1px solid var(--border2); border-radius: 4px;
+    color: var(--text); outline: none;
+    transition: border-color .15s;
+  }
+  .field input:focus, .field select:focus { border-color: var(--accent); }
+  .field select option { background: var(--bg3); }
+
+  .row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+
+  .file-drop {
+    font-family: var(--font-mono); font-size: 11px;
+    padding: 8px 9px;
+    background: var(--bg3); border: 1px dashed var(--border2); border-radius: 4px;
+    color: var(--text2); text-align: center; cursor: pointer;
+    transition: border-color .15s, color .15s;
+  }
+  .file-drop:hover { border-color: var(--accent); color: var(--accent); }
+  #json-file { display: none; }
+
+  #run-btn {
+    font-family: var(--font-mono); font-size: 12px; font-weight: 500;
+    letter-spacing: .06em; text-transform: uppercase;
+    padding: 8px; width: 100%;
+    background: transparent; border: 1px solid var(--accent); border-radius: 4px;
+    color: var(--accent); cursor: pointer;
+    transition: background .15s, color .15s;
+    position: relative; overflow: hidden;
+  }
+  #run-btn:hover { background: var(--accent); color: var(--bg); }
+  #run-btn:active { opacity: .8; }
+
+  /* ── Stats strip ── */
+  #stats {
+    padding: 10px 16px;
+    border-bottom: 1px solid var(--border);
+    display: grid; grid-template-columns: 1fr 1fr; gap: 6px 12px;
+  }
+  .stat { display: flex; flex-direction: column; gap: 1px; }
+  .stat-val { font-family: var(--font-mono); font-size: 16px; font-weight: 500; color: var(--text); }
+  .stat-label { font-family: var(--font-mono); font-size: 10px; color: var(--text3); letter-spacing: .06em; text-transform: uppercase; }
+
+  /* ── Node list ── */
+  #node-list-header {
+    padding: 8px 16px 4px;
+    font-family: var(--font-mono); font-size: 10px; color: var(--text3);
+    letter-spacing: .08em; text-transform: uppercase;
+    display: flex; justify-content: space-between;
+  }
+  #node-list { flex: 1; overflow-y: auto; }
+  #node-list::-webkit-scrollbar { width: 4px; }
+  #node-list::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 2px; }
+
+  .node-row {
+    padding: 6px 16px;
+    display: flex; align-items: center; gap: 9px;
+    cursor: pointer; transition: background .1s;
+    border-left: 2px solid transparent;
+  }
+  .node-row:hover { background: var(--bg3); }
+  .node-row.active { background: var(--bg3); border-left-color: var(--accent); }
+
+  .nd { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+  .node-row .nm { font-family: var(--font-mono); font-size: 11px; color: var(--text); flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .node-row .nw { font-family: var(--font-mono); font-size: 10px; color: var(--text3); flex-shrink: 0; }
+
+  /* ── Canvas ── */
+  #canvas { flex: 1; position: relative; overflow: hidden; }
+  #graph-svg { width: 100%; height: 100%; display: block; }
+
+  /* ── Tooltip ── */
+  #tooltip {
+    position: absolute;
+    background: var(--bg2); border: 1px solid var(--border2);
+    border-radius: 6px; padding: 10px 13px;
+    font-family: var(--font-mono); font-size: 11px;
+    pointer-events: none; opacity: 0;
+    transition: opacity .12s; min-width: 180px; z-index: 20;
+    box-shadow: 0 8px 32px rgba(0,0,0,.5);
+  }
+  #tooltip .tt-name { font-size: 12px; font-weight: 500; color: var(--accent); margin-bottom: 7px; word-break: break-all; }
+  .tt-row { display: flex; justify-content: space-between; gap: 16px; color: var(--text2); line-height: 1.8; }
+  .tt-row span:last-child { color: var(--text); }
+
+  /* ── Legend ── */
+  #legend {
+    position: absolute; bottom: 16px; right: 16px;
+    background: var(--bg2); border: 1px solid var(--border);
+    border-radius: 6px; padding: 10px 13px;
+    font-family: var(--font-mono); font-size: 10px; color: var(--text3);
+  }
+  #legend .leg-title { font-size: 10px; color: var(--text2); margin-bottom: 6px; letter-spacing: .06em; text-transform: uppercase; }
+  .leg-row { display: flex; align-items: center; gap: 7px; line-height: 2; }
+  .leg-dot { border-radius: 50%; flex-shrink: 0; }
+  .leg-line { width: 22px; height: 0; flex-shrink: 0; }
+
+  /* ── Controls hint ── */
+  #hint {
+    position: absolute; bottom: 16px; left: 16px;
+    font-family: var(--font-mono); font-size: 10px; color: var(--text3);
+    line-height: 1.9;
+  }
+
+  /* ── Empty state ── */
+  #empty {
+    position: absolute; inset: 0;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 10px; color: var(--text3); pointer-events: none;
+  }
+  #empty svg { opacity: .12; }
+  #empty p { font-family: var(--font-mono); font-size: 12px; letter-spacing: .06em; }
+
+  /* ── Data source badge ── */
+  #data-badge {
+    position: absolute; top: 12px; right: 12px;
+    font-family: var(--font-mono); font-size: 10px;
+    padding: 3px 8px; border-radius: 3px;
+    background: var(--bg3); border: 1px solid var(--border2);
+    color: var(--text3); letter-spacing: .04em;
+  }
+  #data-badge.live { border-color: var(--accent); color: var(--accent); }
+
+  /* ── Search box ── */
+  #search-wrap { padding: 8px 16px; border-bottom: 1px solid var(--border); }
+  #search-input {
+    width: 100%; font-family: var(--font-mono); font-size: 11px;
+    padding: 5px 9px;
+    background: var(--bg3); border: 1px solid var(--border2); border-radius: 4px;
+    color: var(--text); outline: none;
+  }
+  #search-input:focus { border-color: var(--accent2); }
+  #search-input::placeholder { color: var(--text3); }
+</style>
+</head>
+<body>
+<div id="shell">
+
+  <!-- ── Sidebar ── -->
+  <div id="sidebar">
+    <div id="logo">
+      <h1>TG · Forward · Graph</h1>
+      <p>weighted uni-directional channel network</p>
+    </div>
+
+    <div id="controls">
+      <!-- JSON upload -->
+      <div class="field">
+        <label>Load graph_data.json</label>
+        <div class="file-drop" onclick="document.getElementById('json-file').click()">
+          ↑ Drop or click to load collector output
+        </div>
+        <input type="file" id="json-file" accept=".json">
+      </div>
+
+      <div style="text-align:center;font-family:var(--font-mono);font-size:10px;color:var(--text3)">— or use demo data —</div>
+
+      <!-- Seed -->
+      <div class="field">
+        <label>Seed channel</label>
+        <input type="text" id="seed-input" value="@durov" placeholder="@channel or id:123">
+      </div>
+      <!-- Dates -->
+      <div class="row2">
+        <div class="field">
+          <label>From</label>
+          <input type="date" id="date-from" value="2026-03-01">
+        </div>
+        <div class="field">
+          <label>To</label>
+          <input type="date" id="date-to" value="2026-03-31">
+        </div>
+      </div>
+      <!-- Depth + min-weight -->
+      <div class="row2">
+        <div class="field">
+          <label>Max depth</label>
+          <select id="depth-sel">
+            <option value="1">1 degree</option>
+            <option value="2" selected>2 degrees</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>Min forwards</label>
+          <input type="number" id="min-w" value="1" min="1">
+        </div>
+      </div>
+
+      <button id="run-btn" onclick="runDemo()">▶ Build demo graph</button>
+    </div>
+
+    <!-- Stats -->
+    <div id="stats">
+      <div class="stat"><div class="stat-val" id="s-nodes">—</div><div class="stat-label">Channels</div></div>
+      <div class="stat"><div class="stat-val" id="s-edges">—</div><div class="stat-label">Edges</div></div>
+      <div class="stat"><div class="stat-val" id="s-total">—</div><div class="stat-label">Fwd volume</div></div>
+      <div class="stat"><div class="stat-val" id="s-dense">—</div><div class="stat-label">Density</div></div>
+    </div>
+
+    <!-- Search -->
+    <div id="search-wrap">
+      <input type="text" id="search-input" placeholder="Search channel…" oninput="filterList(this.value)">
+    </div>
+
+    <div id="node-list-header">
+      <span>Channel</span><span>fwd out</span>
+    </div>
+    <div id="node-list"></div>
+  </div>
+
+  <!-- ── Graph canvas ── -->
+  <div id="canvas">
+    <svg id="graph-svg"></svg>
+
+    <div id="empty">
+      <svg width="80" height="80" viewBox="0 0 80 80" fill="none">
+        <circle cx="40" cy="40" r="38" stroke="#d4d8e0" stroke-width="1.5" stroke-dasharray="4 4"/>
+        <circle cx="40" cy="16" r="5" fill="#d4d8e0"/>
+        <circle cx="16" cy="58" r="5" fill="#d4d8e0"/>
+        <circle cx="64" cy="58" r="5" fill="#d4d8e0"/>
+        <line x1="40" y1="21" x2="20" y2="53" stroke="#d4d8e0" stroke-width="1.2"/>
+        <line x1="40" y1="21" x2="60" y2="53" stroke="#d4d8e0" stroke-width="1.2"/>
+        <line x1="21" y1="58" x2="59" y2="58" stroke="#d4d8e0" stroke-width="1.2"/>
+      </svg>
+      <p>load graph_data.json or build a demo</p>
+    </div>
+
+    <div id="data-badge">no data</div>
+
+    <div id="tooltip">
+      <div class="tt-name" id="tt-name"></div>
+      <div class="tt-row"><span>Degree</span><span id="tt-deg"></span></div>
+      <div class="tt-row"><span>Forwards out</span><span id="tt-out"></span></div>
+      <div class="tt-row"><span>Forwards in</span><span id="tt-in"></span></div>
+      <div class="tt-row"><span>Connected to</span><span id="tt-conn"></span></div>
+    </div>
+
+    <div id="legend">
+      <div class="leg-title">Legend</div>
+      <div class="leg-row"><span class="leg-dot" style="width:11px;height:11px;background:var(--seed-col)"></span> Seed (degree 0)</div>
+      <div class="leg-row"><span class="leg-dot" style="width:8px;height:8px;background:var(--d1-col)"></span> Degree 1</div>
+      <div class="leg-row"><span class="leg-dot" style="width:6px;height:6px;background:var(--d2-col)"></span> Degree 2</div>
+      <div class="leg-row" style="margin-top:4px">
+        <span class="leg-line" style="border-top:1px solid var(--text3)"></span> low weight
+      </div>
+      <div class="leg-row">
+        <span class="leg-line" style="border-top:4px solid var(--text2)"></span> high weight
+      </div>
+    </div>
+
+    <div id="hint">scroll · zoom &nbsp;|&nbsp; drag nodes &nbsp;|&nbsp; click to focus</div>
+  </div>
+</div>
+
+<script>
+// ─────────────────────────────────────────────────────────────────────────────
+// Utilities
+// ─────────────────────────────────────────────────────────────────────────────
+const POOL = [
+  "@durov","@telegram","@techcrunch_feeds","@cryptonews_feed","@osintframework",
+  "@breakingnewsEN","@globalpolitics","@financewatch","@cybersec_daily","@devfeed",
+  "@openai_news","@hackernewsfeed","@mediadaily","@cryptopump","@chainlink_feed",
+  "@worldnewshub","@startupdigest","@airesearch","@privacymatters","@web3pulse",
+  "@marketwatch_tg","@infosecnews","@deepmind_updates","@euronews_feed","@bbcalerts",
+  "@reuters_feed","@politicoEU","@sciencedaily_tg","@hackread","@zeroday_feeds",
+  "@techinsider","@toolsfinder","@leaksnation","@grey_zone_war","@conflictnews",
+  "@natowatch","@foreignpolicy_tg","@databreaches","@threatintel_feed","@sigint_news"
+];
+
+function seededRng(str) {
+  let s = [...str].reduce((a,c)=>a+c.charCodeAt(0),0);
+  return ()=>{ s=(s*1664525+1013904223)&0xffffffff; return (s>>>0)/0xffffffff; };
+}
+
+function generateDemo(seed, dateFrom, dateTo, maxDepth, minWeight) {
+  const r = seededRng(seed);
+  const days = Math.max(1,(new Date(dateTo)-new Date(dateFrom))/(864e5));
+  const nodes = new Map();
+  const edgeMap = new Map();
+  const addEdge = (src,tgt,w)=>{ const k=src+'→'+tgt; edgeMap.set(k,{source:src,target:tgt,weight:(edgeMap.get(k)?.weight||0)+w}); };
+
+  nodes.set(seed,{id:seed,degree:0});
+
+  // degree-1
+  const d1=[];
+  for(let i=0;i<5+Math.floor(r()*4);i++){
+    const ch=POOL[Math.floor(r()*POOL.length)];
+    if(ch===seed||nodes.has(ch))continue;
+    nodes.set(ch,{id:ch,degree:1}); d1.push(ch);
+    const w=Math.floor(3+r()*Math.min(days*4,70));
+    if(w>=minWeight)addEdge(seed,ch,w);
+  }
+
+  if(maxDepth>=2){
+    for(const ch1 of d1){
+      for(let i=0;i<2+Math.floor(r()*4);i++){
+        const ch2=POOL[Math.floor(r()*POOL.length)];
+        if(ch2===seed||ch2===ch1)continue;
+        if(!nodes.has(ch2))nodes.set(ch2,{id:ch2,degree:2});
+        const w=Math.floor(1+r()*Math.min(days*2,30));
+        if(w>=minWeight)addEdge(ch1,ch2,w);
+      }
+      // some d1→d1 cross links
+      for(const ch2 of d1){
+        if(ch2!==ch1&&r()>0.7){
+          const w=Math.floor(1+r()*12);
+          if(w>=minWeight)addEdge(ch1,ch2,w);
+        }
+      }
+    }
+  }
+
+  return { nodes:[...nodes.values()], edges:[...edgeMap.values()] };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Graph state
+// ─────────────────────────────────────────────────────────────────────────────
+let SIM=null, ALL_NODES=[], ALL_EDGES=[], SELECTED=null;
+
+const COL = d=>d.degree===0?'var(--seed-col)':d.degree===1?'var(--d1-col)':'var(--d2-col)';
+const R   = d=>d.degree===0?15:d.degree===1?10:7;
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Render
+// ─────────────────────────────────────────────────────────────────────────────
+function render(nodes, edges, badge='demo') {
+  ALL_NODES=nodes; ALL_EDGES=edges; SELECTED=null;
+  document.getElementById('empty').style.display='none';
+
+  const outW={}, inW={};
+  edges.forEach(e=>{ outW[e.source]=(outW[e.source]||0)+e.weight; inW[e.target]=(inW[e.target]||0)+e.weight; });
+
+  // Stats
+  const N=nodes.length, E=edges.length;
+  const maxE=N*(N-1), density=maxE?E/maxE:0;
+  document.getElementById('s-nodes').textContent=N;
+  document.getElementById('s-edges').textContent=E;
+  document.getElementById('s-total').textContent=edges.reduce((s,e)=>s+e.weight,0);
+  document.getElementById('s-dense').textContent=(density*100).toFixed(1)+'%';
+
+  const db=document.getElementById('data-badge');
+  db.textContent=badge; db.className=badge==='live'?'live':'';
+
+  populateList(nodes, outW);
+  drawForceGraph(nodes, edges, outW, inW);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Sidebar list
+// ─────────────────────────────────────────────────────────────────────────────
+let ALL_ROWS=[];
+function populateList(nodes, outW) {
+  const sorted=[...nodes].sort((a,b)=>a.degree-b.degree||(outW[b.id]||0)-(outW[a.id]||0));
+  const list=document.getElementById('node-list');
+  list.innerHTML='';
+  ALL_ROWS=[];
+  sorted.forEach(n=>{
+    const row=document.createElement('div');
+    row.className='node-row'; row.dataset.id=n.id;
+    row.innerHTML=`<span class="nd" style="background:${COL(n)}"></span>
+      <span class="nm">${n.id}</span>
+      <span class="nw">${outW[n.id]||0}</span>`;
+    row.onclick=()=>focusNode(n.id);
+    list.appendChild(row);
+    ALL_ROWS.push({el:row, id:n.id});
+  });
+}
+
+function filterList(q) {
+  const lq=q.toLowerCase();
+  ALL_ROWS.forEach(({el,id})=>{ el.style.display=id.toLowerCase().includes(lq)?'':'none'; });
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Force graph
+// ─────────────────────────────────────────────────────────────────────────────
+function drawForceGraph(nodes, edges, outW, inW) {
+  const svg=d3.select('#graph-svg');
+  svg.selectAll('*').remove();
+
+  const el=document.getElementById('graph-svg');
+  const W=el.clientWidth||800, H=el.clientHeight||700;
+
+  // defs: arrowhead + glow filter
+  const defs=svg.append('defs');
+  const mkArrow=(id,col)=>{
+    defs.append('marker').attr('id',id).attr('viewBox','0 0 8 8')
+      .attr('refX',16).attr('refY',4)
+      .attr('markerWidth',6).attr('markerHeight',6)
+      .attr('orient','auto')
+      .append('path').attr('d','M1 1L7 4L1 7').attr('fill','none')
+      .attr('stroke',col).attr('stroke-width',1.4)
+      .attr('stroke-linecap','round').attr('stroke-linejoin','round');
+  };
+  mkArrow('arr','#888'); mkArrow('arr-hi','var(--accent)');
+
+  // glow
+  const filt=defs.append('filter').attr('id','glow').attr('x','-50%').attr('y','-50%').attr('width','200%').attr('height','200%');
+  filt.append('feGaussianBlur').attr('stdDeviation','3').attr('result','blur');
+  const feMerge=filt.append('feMerge');
+  feMerge.append('feMergeNode').attr('in','blur');
+  feMerge.append('feMergeNode').attr('in','SourceGraphic');
+
+  const g=svg.append('g');
+  svg.call(d3.zoom().scaleExtent([0.2,6]).on('zoom',e=>g.attr('transform',e.transform)));
+
+  const wExt=d3.extent(edges,e=>e.weight)||[1,1];
+  const strokeW=d3.scaleLinear().domain(wExt).range([0.8,6]);
+  const strokeOp=d3.scaleLinear().domain(wExt).range([0.25,0.75]);
+
+  const nd=nodes.map(n=>({...n}));
+  const ed=edges.map(e=>({...e}));
+
+  if(SIM)SIM.stop();
+  SIM=d3.forceSimulation(nd)
+    .force('link',d3.forceLink(ed).id(d=>d.id).distance(d=>90+strokeW(d.weight)*10))
+    .force('charge',d3.forceManyBody().strength(-280))
+    .force('center',d3.forceCenter(W/2,H/2))
+    .force('collision',d3.forceCollide().radius(d=>R(d)+14));
+
+  // edges
+  const link=g.append('g').selectAll('line')
+    .data(ed).enter().append('line')
+    .attr('stroke','#4a5060')
+    .attr('stroke-width',d=>strokeW(d.weight))
+    .attr('stroke-opacity',d=>strokeOp(d.weight))
+    .attr('marker-end','url(#arr)');
+
+  // weight labels on edges (only show if >2 or selected)
+  const edgeLabel=g.append('g').selectAll('text')
+    .data(ed).enter().append('text')
+    .attr('font-family','IBM Plex Mono,monospace').attr('font-size',9)
+    .attr('fill','var(--text3)').attr('text-anchor','middle')
+    .attr('opacity',0).attr('pointer-events','none')
+    .text(d=>d.weight);
+
+  // nodes
+  const nodeG=g.append('g').selectAll('g.node')
+    .data(nd).enter().append('g').attr('class','node')
+    .style('cursor','pointer')
+    .on('mousemove',showTip).on('mouseleave',hideTip)
+    .on('click',(ev,d)=>{ ev.stopPropagation(); focusNode(d.id); })
+    .call(d3.drag()
+      .on('start',(ev,d)=>{if(!ev.active)SIM.alphaTarget(.3).restart();d.fx=d.x;d.fy=d.y;})
+      .on('drag',(ev,d)=>{d.fx=ev.x;d.fy=ev.y;})
+      .on('end',(ev,d)=>{if(!ev.active)SIM.alphaTarget(0);d.fx=null;d.fy=null;}));
+
+  nodeG.append('circle').attr('class','ring')
+    .attr('r',d=>R(d)+4).attr('fill','none')
+    .attr('stroke',COL).attr('stroke-width',1).attr('opacity',0);
+
+  nodeG.append('circle').attr('class','body')
+    .attr('r',R).attr('fill',COL).attr('fill-opacity',.9);
+
+  nodeG.append('text').attr('class','lbl')
+    .text(d=>d.id)
+    .attr('font-family','IBM Plex Mono,monospace')
+    .attr('font-size',d=>d.degree===0?11:10)
+    .attr('fill','var(--text)').attr('text-anchor','middle')
+    .attr('dy',d=>R(d)+12).attr('pointer-events','none').attr('opacity',.8);
+
+  SIM.on('tick',()=>{
+    link
+      .attr('x1',d=>d.source.x).attr('y1',d=>d.source.y)
+      .attr('x2',d=>{ const dx=d.target.x-d.source.x,dy=d.target.y-d.source.y,l=Math.hypot(dx,dy)||1,r=R(d.target)+5; return d.target.x-dx/l*r; })
+      .attr('y2',d=>{ const dx=d.target.x-d.source.x,dy=d.target.y-d.source.y,l=Math.hypot(dx,dy)||1,r=R(d.target)+5; return d.target.y-dy/l*r; });
+    edgeLabel
+      .attr('x',d=>(d.source.x+d.target.x)/2)
+      .attr('y',d=>(d.source.y+d.target.y)/2);
+    nodeG.attr('transform',d=>`translate(${d.x},${d.y})`);
+  });
+
+  // click canvas → deselect
+  svg.on('click',()=>{ SELECTED=null; applyHighlight(nd,ed,link,edgeLabel,nodeG,null); clearListSel(); });
+
+  // store refs for focusNode
+  svg._nd=nd; svg._ed=ed; svg._link=link; svg._edgeLabel=edgeLabel; svg._nodeG=nodeG;
+
+  function showTip(ev,d) {
+    document.getElementById('tt-name').textContent=d.id;
+    document.getElementById('tt-deg').textContent=`degree ${d.degree}`;
+    document.getElementById('tt-out').textContent=outW[d.id]||0;
+    document.getElementById('tt-in').textContent=inW[d.id]||0;
+    const conn=new Set([...ed.filter(e=>e.source.id===d.id).map(e=>e.target.id),...ed.filter(e=>e.target.id===d.id).map(e=>e.source.id)]).size;
+    document.getElementById('tt-conn').textContent=conn;
+    const tt=document.getElementById('tooltip');
+    const rect=document.getElementById('canvas').getBoundingClientRect();
+    let lx=ev.clientX-rect.left+14, ly=ev.clientY-rect.top+14;
+    if(lx+200>rect.width)lx-=214; if(ly+130>rect.height)ly-=145;
+    tt.style.left=lx+'px'; tt.style.top=ly+'px'; tt.style.opacity=1;
+  }
+  function hideTip(){document.getElementById('tooltip').style.opacity=0;}
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Focus / highlight
+// ─────────────────────────────────────────────────────────────────────────────
+function focusNode(id) {
+  SELECTED=id;
+  const svg=d3.select('#graph-svg');
+  applyHighlight(svg._nd,svg._ed,svg._link,svg._edgeLabel,svg._nodeG,id);
+  // sidebar
+  ALL_ROWS.forEach(({el,id:rid})=>{
+    el.classList.toggle('active',rid===id);
+    if(rid===id)el.scrollIntoView({block:'nearest'});
+  });
+}
+
+function applyHighlight(nd,ed,link,edgeLabel,nodeG,id) {
+  if(!nd)return;
+  const connected=id?new Set([...ed.filter(e=>e.source.id===id||e.target.id===id).flatMap(e=>[e.source.id,e.target.id])]):{};
+
+  link
+    .attr('stroke',e=>id&&(e.source.id===id||e.target.id===id)?'var(--accent)':'#4a5060')
+    .attr('stroke-opacity',e=>!id||(e.source.id===id||e.target.id===id)?0.8:0.07)
+    .attr('marker-end',e=>id&&(e.source.id===id||e.target.id===id)?'url(#arr-hi)':'url(#arr)');
+
+  edgeLabel.attr('opacity',e=>id&&(e.source.id===id||e.target.id===id)?0.8:0);
+
+  nodeG.select('circle.body')
+    .attr('fill-opacity',d=>!id||d.id===id||connected.has?.(d.id)?0.95:0.15);
+  nodeG.select('circle.ring')
+    .attr('opacity',d=>d.id===id?0.6:0);
+  nodeG.select('text.lbl')
+    .attr('opacity',d=>!id||d.id===id||connected.has?.(d.id)?0.9:0.15);
+}
+
+function clearListSel(){ALL_ROWS.forEach(({el})=>el.classList.remove('active'));}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Entry points
+// ─────────────────────────────────────────────────────────────────────────────
+function runDemo() {
+  const seed=document.getElementById('seed-input').value.trim()||'@seed';
+  const df=document.getElementById('date-from').value;
+  const dt=document.getElementById('date-to').value;
+  const depth=parseInt(document.getElementById('depth-sel').value);
+  const minW=parseInt(document.getElementById('min-w').value)||1;
+  const {nodes,edges}=generateDemo(seed,df,dt,depth,minW);
+  render(nodes,edges,'demo');
+}
+
+// Load real JSON from collector
+document.getElementById('json-file').addEventListener('change',function(){
+  const file=this.files[0]; if(!file)return;
+  const reader=new FileReader();
+  reader.onload=e=>{
+    try{
+      const data=JSON.parse(e.target.result);
+      // Support both raw {nodes,edges} and the collector's wrapped format
+      const nodes=data.nodes||[];
+      const edges=data.edges||[];
+      if(!nodes.length)throw new Error('No nodes found');
+      // Populate controls from meta if present
+      if(data.meta){
+        if(data.meta.seed)document.getElementById('seed-input').value=data.meta.seed;
+        if(data.meta.date_from)document.getElementById('date-from').value=data.meta.date_from;
+        if(data.meta.date_to)document.getElementById('date-to').value=data.meta.date_to;
+        if(data.meta.max_depth)document.getElementById('depth-sel').value=data.meta.max_depth;
+        if(data.meta.min_weight)document.getElementById('min-w').value=data.meta.min_weight;
+      }
+      render(nodes,edges,'live');
+    } catch(err){
+      alert('Could not parse JSON: '+err.message);
+    }
+  };
+  reader.readAsText(file);
+  this.value=''; // allow re-upload of same file
+});
+
+// Keyboard shortcut: Escape to deselect
+document.addEventListener('keydown',e=>{
+  if(e.key==='Escape'){ SELECTED=null; const svg=d3.select('#graph-svg'); applyHighlight(svg._nd,svg._ed,svg._link,svg._edgeLabel,svg._nodeG,null); clearListSel(); }
+});
+
+// Auto-run demo on load
+window.addEventListener('load',()=>setTimeout(runDemo,100));
+</script>
+</body>
+</html>
