@@ -2,6 +2,9 @@
 
 Maps how Telegram channels forward each other's posts, producing a weighted directed graph where edge weight = number of forwarded posts from channel A to channel B within a configurable date window.
 
+
+<img width="1878" height="933" alt="Screenshot from 2026-05-26 21-21-37" src="https://github.com/user-attachments/assets/25027e90-3148-4669-ac0b-049f8b80ea06" />
+
 ---
 
 ## Files
